@@ -2197,14 +2197,36 @@ defmodule Ecto.Adapters.MyXQLTest do
   end
 
   test "drop_if_exists constraint" do
-    assert_raise ArgumentError,
-                 ~r/MySQL adapter does not support `drop_if_exists` for constraints/,
-                 fn ->
-                   execute_ddl(
-                     {:drop_if_exists,
-                      constraint(:products, "price_must_be_positive", prefix: "foo"), :restrict}
-                   )
-                 end
+    drop =
+      {:drop_if_exists, constraint(:products, "price_must_be_positive", prefix: "foo"), :restrict}
+
+    assert execute_ddl(drop) == [
+             "DROP PROCEDURE IF EXISTS PROC_ECTO_DROP_CONSTRAINT",
+             """
+             CREATE PROCEDURE PROC_ECTO_DROP_CONSTRAINT (
+             IN tableName VARCHAR(64),
+             IN constraintName VARCHAR(64),
+             IN tableSchema VARCHAR(64)
+             )
+             BEGIN
+             IF EXISTS (
+             SELECT * FROM `information_schema`.`table_constraints`
+             WHERE table_schema = tableSchema
+             AND table_name = tableName
+             AND constraint_name = constraintName
+             AND constraint_type in ('UNIQUE', 'FOREIGN KEY', 'CHECK'))
+             THEN
+             SET @query = CONCAT('ALTER TABLE ', tableName, ' DROP CONSTRAINT ', constraintName, ';');
+             PREPARE stmt FROM @query;
+             EXECUTE stmt;
+             DEALLOCATE PREPARE stmt;
+             END IF;
+             END
+             """
+             |> remove_newlines(),
+             "CALL PROC_ECTO_DROP_CONSTRAINT('products', 'price_must_be_positive', 'foo')",
+             "DROP PROCEDURE PROC_ECTO_DROP_CONSTRAINT"
+           ]
   end
 
   test "create an index using a different type" do

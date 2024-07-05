@@ -1,7 +1,7 @@
 defmodule Ecto.Integration.ConstraintsTest do
   use ExUnit.Case, async: true
 
-  import Ecto.Migrator, only: [up: 4]
+  import Ecto.Migrator, only: [up: 4, down: 4]
   alias Ecto.Integration.PoolRepo
 
   defmodule ConstraintMigration do
@@ -9,7 +9,7 @@ defmodule Ecto.Integration.ConstraintsTest do
 
     @table table(:constraints_test)
 
-    def change do
+    def up do
       create @table do
         add :price, :integer
         add :from, :integer
@@ -18,6 +18,12 @@ defmodule Ecto.Integration.ConstraintsTest do
 
       # Only valid after MySQL 8.0.19
       create constraint(@table.name, :positive_price, check: "price > 0")
+    end
+
+    def down do
+      drop constraint(@table.name, :positive_price)
+
+      drop @table
     end
   end
 
@@ -34,9 +40,14 @@ defmodule Ecto.Integration.ConstraintsTest do
   @base_migration 2_000_000
 
   setup_all do
+    num = @base_migration + System.unique_integer([:positive])
+
     ExUnit.CaptureLog.capture_log(fn ->
-      num = @base_migration + System.unique_integer([:positive])
       up(PoolRepo, num, ConstraintMigration, log: false)
+    end)
+
+    on_exit(:drop_table, fn ->
+      down(PoolRepo, num, ConstraintMigration, log: true)
     end)
 
     :ok

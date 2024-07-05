@@ -1060,8 +1060,58 @@ if Code.ensure_loaded?(MyXQL) do
       ]
     end
 
+    def execute_ddl({:drop_if_exists, %Constraint{} = constraint, :restrict}) do
+      table_name = [?', to_string(constraint.table), ?']
+      constraint_name = [?', to_string(constraint.name), ?']
+
+      table_schema =
+        if constraint.prefix do
+          [?', escape_string(constraint.prefix), ?']
+        else
+          "DATABASE()"
+        end
+
+      [
+        ["DROP PROCEDURE IF EXISTS PROC_ECTO_DROP_CONSTRAINT"],
+        [
+          # "DELIMITER $$ ",
+          "CREATE PROCEDURE PROC_ECTO_DROP_CONSTRAINT ( ",
+          "IN tableName VARCHAR(200), ",
+          "IN constraintName VARCHAR(200), ",
+          "IN tableSchema VARCHAR(200) ",
+          ") ",
+          "BEGIN ",
+          "IF EXISTS ( ",
+          "SELECT * FROM `information_schema`.`table_constraints` ",
+          "WHERE table_schema = tableSchema ",
+          "AND table_name = tableName ",
+          "AND constraint_name = constraintName ",
+          "AND constraint_type in ('UNIQUE', 'FOREIGN KEY', 'CHECK')) ",
+          "THEN ",
+          "SET @query = CONCAT('ALTER TABLE ', tableName, ' DROP CONSTRAINT ', constraintName, ';'); ",
+          "PREPARE stmt FROM @query; ",
+          "EXECUTE stmt; ",
+          "DEALLOCATE PREPARE stmt; ",
+          "END IF; ",
+          "END"
+          # "DELIMITER ;"
+        ],
+        [
+          "CALL PROC_ECTO_DROP_CONSTRAINT(",
+          table_name,
+          ", ",
+          constraint_name,
+          ", ",
+          table_schema,
+          ")"
+        ],
+        ["DROP PROCEDURE PROC_ECTO_DROP_CONSTRAINT"]
+      ]
+    end
+
     def execute_ddl({:drop_if_exists, %Constraint{}, _}),
-      do: error!(nil, "MySQL adapter does not support `drop_if_exists` for constraints")
+      do:
+        error!(nil, "MySQL adapter does not support cascade in `drop_if_exists` for constraints")
 
     def execute_ddl({:drop, %Index{}, :cascade}),
       do: error!(nil, "MySQL adapter does not support cascade in drop index")
